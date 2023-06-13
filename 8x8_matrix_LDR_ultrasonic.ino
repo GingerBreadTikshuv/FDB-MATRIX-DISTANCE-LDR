@@ -11,17 +11,19 @@
 
 MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 
-#define FIREBASE_HOST "https://esp32-dedmo-default-rtdb.firebaseio.com/" 
-#define FIREBASE_AUTH "AIzaSyDtL41YZ7JA9QlX1Myvs0474dXZ_PeOAJI" 
+#define FIREBASE_HOST "URL" 
+#define FIREBASE_AUTH "API" 
 
-#define WIFI_SSID "KinCollege"
-#define WIFI_PASSWORD ""
+#define WIFI_SSID "TP_Link"
+#define WIFI_PASSWORD "PASS"
 
 #define TRIGGER_PIN 26 // HC-SR04 trigger pin
 #define ECHO_PIN 25    // HC-SR04 echo pin
 #define LDR_PIN 34     // LDR analog pin
 
 FirebaseData fbdo;
+
+unsigned long updateInterval = 5000; // Default delay interval in milliseconds
 
 void setup() {
   portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -46,31 +48,45 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
 }
 
-bool displayNeedsClearing = true; 
+bool displayNeedsClearing = true;
 bool dataFetched = false;
 String valueFromDB;
 
 void loop() {
   static unsigned long lastUpdate = 0;
+  static unsigned long lastDelayFetch = 0;
   unsigned long currentMillis = millis();
 
-  if (currentMillis - lastUpdate > 3000) {  // Update every 3 seconds
+  // Fetch delay from Firebase every 5 seconds
+  if (currentMillis - lastDelayFetch > 5000) {
+    if (Firebase.getInt(fbdo, "/test/delay")) { // Fetch the delay from Firebase
+      updateInterval = fbdo.intData() * 1000; // Convert to milliseconds if delay is in seconds
+      Serial.print("Fetched delay: ");
+      Serial.println(updateInterval);
+      lastDelayFetch = currentMillis;
+    } else {
+      Serial.print("Failed to get delay from Firebase. Error: ");
+      Serial.println(fbdo.errorReason());
+    }
+  }
+
+  if (currentMillis - lastUpdate > updateInterval) { // Update every x seconds
     long duration, distance;
-    digitalWrite(TRIGGER_PIN, LOW);  
-    delayMicroseconds(2); 
+    digitalWrite(TRIGGER_PIN, LOW);
+    delayMicroseconds(2);
     digitalWrite(TRIGGER_PIN, HIGH);
-    delayMicroseconds(10); 
+    delayMicroseconds(10);
     digitalWrite(TRIGGER_PIN, LOW);
     duration = pulseIn(ECHO_PIN, HIGH);
-    distance = (duration/2) / 29.1; // calculate the distance
-    
-    Firebase.setInt(fbdo, "/test/distance", distance); // Send the distance to the Firebase
+    distance = (duration / 2) / 29.1; // calculate the distance
+
+    Firebase.setInt(fbdo,"/test/distance", distance); // Send the distance to Firebase
 
     lastUpdate = currentMillis;
   }
 
   int ldrValue = analogRead(LDR_PIN); // read the ldr value
-  if(ldrValue > 500) {
+  if (ldrValue > 450) {
     P.setIntensity(0, 15); // Set the brightness of the display to maximum
   } else {
     P.setIntensity(0, 0); // Set the brightness of the display to minimum
@@ -78,15 +94,15 @@ void loop() {
 
   Serial.println(ldrValue);
 
-  if (!dataFetched){
-    if (Firebase.getString(fbdo, "/test/distance")){ // Fetch the distance from Firebase
+  if (!dataFetched) {
+    if (Firebase.getString(fbdo, "/test/distance")) { // Fetch the distance from Firebase
       valueFromDB = fbdo.stringData();
-    
+
       Serial.print("Data from Firebase: ");
       Serial.println(valueFromDB);
 
       if (displayNeedsClearing) {
-        P.displayClear(); 
+        P.displayClear();
         P.displayText(valueFromDB.c_str(), PA_CENTER, 100, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
         displayNeedsClearing = false;
       }
@@ -96,11 +112,10 @@ void loop() {
       Serial.println(fbdo.errorReason());
     }
   }
-  
+
   if (P.displayAnimate()) {
     displayNeedsClearing = true;
     P.displayReset();
     dataFetched = false;
   }
 }
-
